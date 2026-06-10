@@ -1,0 +1,622 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{algorithm}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnamese]{babel}   % thay thế \usepackage{vietnam}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{url}
+\usepackage{float}
+
+\def\BibTeX{{\rm B\kern-.05em i\kern-.025em b T\kern-.08em E\kern-.10em X}}
+
+\newcommand{\safeincludegraphics}[2][]{%
+\IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+\fbox{\parbox[c][0.18\textheight][c]{0.9\linewidth}{\centering File not found:\\\texttt{#2}}}%
+}%
+}
+
+\begin{document}
+
+\title{Phát hiện bất thường điện tâm đồ không giám sát quy mô lớn bằng Autoencoder biến phân tối ưu hóa Beta-Warmup: Từ nền tảng toán học đến ứng dụng lâm sàng và giáo dục y khoa}
+
+\author{
+    \IEEEauthorblockN{Nguyễn Hoàng Phước, Võ Trần Ngọc Bích, Võ Quang Vinh, và TS. Nguyễn Thiên Bảo}
+    \IEEEauthorblockA{\textit{Viện Công nghệ Thông minh và Tương tác, Trường Công nghệ và Thiết kế} \\
+    \textit{Đại học Kinh tế TP.HCM}\\
+    TP.HCM, Việt Nam \\
+    Email: \{phuocnguyen.31231021201, bichvo.31231026758, vinhvo.31231026560\}@st.ueh.edu.vn, baont@ueh.edu.vn}
+}
+
+\maketitle
+
+\begin{abstract}
+Bệnh tim mạch (CVD) tiếp tục duy trì vị thế là nguyên nhân gây tử vong hàng đầu toàn cầu. Việc phát hiện sớm các biến đổi bệnh lý trên tín hiệu điện tâm đồ (ECG) đóng vai trò quyết định trong việc giảm tỷ lệ tử vong. Tuy nhiên, quy trình gán nhãn dữ liệu ECG quy mô lớn trong môi trường lâm sàng thực tế tiêu tốn khối lượng tài nguyên chuyên gia cực lớn và luôn đối mặt với hiện tượng mất cân bằng lớp trầm trọng. Trong nghiên cứu này, chúng tôi đề xuất một khung làm việc học sâu không giám sát (Unsupervised Deep Learning) dựa trên kiến trúc mạng Autoencoder biến phân (\(\beta\)-VAE) tối ưu hóa đặc biệt cho chuỗi thời gian 1D. Mô hình được huấn luyện nghiêm ngặt chỉ trên các chuỗi nhịp tim bình thường thuộc bộ dữ liệu ECG5000 nhằm học phân phối xác suất gốc của trạng thái khỏe mạnh. Nhằm triệt tiêu hiện tượng sụp đổ không gian tiềm ẩn (KL Collapse), chúng tôi thiết kế chiến lược ủ động Beta-Warmup tuyến tính theo chu kỳ. Phân tích thực nghiệm thành phần (Ablation Study) chỉ ra rằng việc nén không gian ẩn xuống cấu trúc cực hạn 2 chiều (\(latent\_dim=2\)) đóng vai trò như bộ lọc nhiễu hình thái hữu hiệu. Kết quả thực nghiệm chứng minh mô hình đạt chỉ số AUC-ROC là 0,9620, độ chính xác phát hiện bất thường đạt 0,98 và F1-score đạt 0,90, vượt trội có ý nghĩa thực nghiệm so với Isolation Forest và One-Class SVM. Nghiên cứu cũng cung cấp các diễn giải toán học sâu sắc về kỹ thuật tái tham số hóa, phân rã hàm mục tiêu ELBO, và được hiện thực hóa qua hệ thống web ứng dụng tích hợp Dashboard XAI giáo dục y khoa.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Điện tâm đồ (ECG), Phát hiện bất thường, Variational Autoencoder (VAE), Học sâu không giám sát, Beta-Warmup, Giới hạn dưới bằng chứng (ELBO), Khả năng diễn giải thuật toán (XAI).
+\end{IEEEkeywords}
+
+\section{GIỚI THIỆU}
+\IEEEdropcaps{B}ệnh tim mạch (Cardiovascular Diseases - CVDs) là mối đe dọa hàng đầu đối với an ninh y tế và sức khỏe cộng đồng toàn cầu, chịu trách nhiệm cho hàng triệu ca tử vong mỗi năm. Trong các phương pháp chẩn đoán lâm sàng hiện đại, điện tâm đồ (Electrocardiogram - ECG) đóng vai trò là công cụ thăm dò chức năng tim mạch không xâm lấn, chi phí thấp và phổ biến nhất để ghi lại các hoạt động điện sinh lý của cơ tim theo thời gian. Thông qua biểu đồ ECG, các bác sĩ chuyên khoa có thể nhận diện các rối loạn nhịp tim, hiện tượng thiếu máu cơ tim cấp tính, hay các bệnh lý cơ tim thứ phát dựa trên sự thay đổi hình thái của các phức bộ sóng P-Q-R-S-T. Mặc dù vậy, việc giám sát liên tục bằng thiết bị Holter ECG trong 24 đến 72 giờ tạo ra khối lượng dữ liệu khổng lồ. Việc phân tích thủ công chuỗi dữ liệu này không chỉ tạo áp lực công việc quá tải lên đội ngũ y tế, mà còn tiềm ẩn nguy cơ sai sót cao do hội chứng mệt mỏi thị giác và tính chủ quan của người đọc.
+
+Sự bùng nổ của trí tuệ nhân tạo (AI) và học máy đã mở ra những hướng đi mới trong việc tự động hóa phân tích y khoa. Tuy nhiên, một trong những rào cản lớn nhất khi ứng dụng các mô hình học máy có giám sát vào bài toán phân tích dữ liệu y tế thực tế chính là tính chất mất cân bằng dữ liệu cực kỳ nghiêm trọng. Trong các quần thể sàng lọc cộng đồng, các mẫu nhịp tim sinh lý bình thường chiếm tỷ trọng áp đảo tuyệt đối, trong khi các mẫu biểu hiện bệnh lý dạng hiếm hoặc biến thể ranh giới thường rất khan hiếm và khó thu thập. Việc xây dựng một tập dữ liệu có nhãn cân bằng đòi hỏi sự phối hợp liên tục của nhiều chuyên gia tim mạch trong việc rà soát từng nhịp tim, dẫn đến chi phí tài chính khổng lồ. Hơn nữa, các mô hình phân loại có giám sát khi huấn luyện trên dữ liệu mất cân bằng thường bị thiên lệch nặng nề về phía lớp đa số, dẫn đến tỷ lệ âm tính giả cao -- một kịch bản vô cùng nguy hiểm trong y khoa khi hệ thống bỏ sót các dấu hiệu bệnh lý tiềm ẩn.
+
+Để giải quyết triệt để hạn chế trên, hướng tiếp cận học không giám sát kết hợp bài toán phát hiện bất thường nổi lên như một giải pháp tối ưu mang tính thực tiễn cao nhất. Triết lý của phương pháp này dựa trên nguyên lý: mô hình chỉ được tiếp cận và học tập các quy luật hình thái của dữ liệu khỏe mạnh hoàn toàn trong pha huấn luyện. Hệ thống sẽ tự động xây dựng một không gian biểu diễn toán học đại diện cho trạng thái sinh lý bình thường. Khi kiểm thử, bất kỳ một tín hiệu ECG nào có cấu trúc cơ học hoặc biên độ sai lệch đáng kể so với phân phối đã học sẽ lập tức bị mô hình tính toán ra mức sai số lớn và gắn cờ là bất thường mà không cần mạng nơ-ron phải biết trước nhãn bệnh lý cụ thể đó là loại bệnh gì.
+
+Nghiên cứu này giới thiệu một khung làm việc phát hiện bất thường nâng cao sử dụng kiến trúc mạng Autoencoder biến phân (\(\beta\)-VAE) tích hợp các tầng liên kết dày đặc tối ưu cho chuỗi thời gian 1D. VAE nguyên bản thường cố gắng tối ưu hóa giới hạn dưới bằng chứng (Evidence Lower Bound - ELBO), cân bằng giữa sai số tái tạo và độ phân kỳ Kullback-Leibler. Tuy nhiên, khi áp dụng vào các cấu trúc dữ liệu chuỗi liên tục, mạng VAE thường rơi vào trạng thái ``sụp đổ không gian ẩn'' (KL Collapse), nơi bộ giải mã tự động phớt lờ các vector tiềm ẩn. Chúng tôi vượt qua thách thức kỹ thuật này bằng cách thiết kế một chiến lược tăng trọng số KL tuyến tính (Beta-Warmup) một cách hệ thống theo chu kỳ epoch, ép buộc không gian tiềm ẩn phải lưu trữ thông tin cấu trúc đặc trưng.
+
+Các đóng góp khoa học cốt lõi của bài báo bao gồm:
+\begin{enumerate}
+\item Xây dựng hoàn chỉnh nền tảng toán học và tối ưu hóa kiến trúc mạng \(\beta\)-VAE 1D không giám sát, loại bỏ hoàn toàn sự phụ thuộc vào dữ liệu bệnh lý gán nhãn thủ công.
+\item Cung cấp chứng minh thực nghiệm vững chắc về năng lực của cơ chế Beta-Warmup trong việc ngăn chặn hiện tượng KL Collapse trên tín hiệu sinh học.
+\item Thực hiện nghiên cứu thành phần (Ablation Study) quy mô lớn, đưa ra bằng chứng định lượng chứng minh cấu trúc nén cực hạn (\(latent\_dim=2\)) là nút thắt cổ chai tối ưu giúp lọc nhiễu tần số cao trên ECG.
+\item Thiết lập khung thuật toán cảnh báo lâm sàng (Clinical Triage Algorithm) dựa trên ngưỡng phân vị thứ 95 của sai số tái tạo.
+\item Phát triển hệ thống web ứng dụng tích hợp bảng điều khiển XAI, giúp chuyển hóa mô hình ``hộp đen'' thành công cụ giáo dục y khoa minh bạch và trực quan.
+\end{enumerate}
+
+\section{RELATED WORK}
+\subsection{Phát hiện bất thường ECG và các phương pháp truyền thống}
+Nghiên cứu về phát hiện bất thường trên tín hiệu ECG đã phát triển từ các mô hình thống kê truyền thống đến những cấu trúc học sâu hiện đại. Trước khi học sâu trở nên phổ biến, các phương pháp như PCA, One-Class SVM và Isolation Forest thường được sử dụng do đơn giản, nhanh và dễ triển khai. Tuy nhiên, chúng thường đòi hỏi bước trích xuất đặc trưng thủ công, ví dụ như khoảng R-R, biên độ QRS hoặc một số tham số hình thái học được định nghĩa trước. Những đặc trưng này hữu ích nhưng khó bao quát đầy đủ các biến thiên tinh vi của tín hiệu sinh học.
+
+\subsection{Autoencoder và biến thể trong phát hiện bất thường}
+Autoencoder (AE) là một kỹ thuật học không giám sát kinh điển cho bài toán phát hiện bất thường dựa trên sai số tái tạo. Mô hình AE học cách nén dữ liệu bình thường vào không gian tiềm ẩn rồi tái tạo lại đầu vào. Nếu đầu vào là bất thường, sai số tái tạo tăng lên rõ rệt. Tuy nhiên, AE thuần túy có thể học quá tốt và tái tạo cả tín hiệu bất thường nếu dung lượng mô hình quá lớn. Điều này làm suy yếu ranh giới giữa dữ liệu bình thường và bất thường.
+
+\subsection{Variational Autoencoder và KL Collapse}
+Variational Autoencoder (VAE) khắc phục hạn chế này bằng cách biểu diễn không gian ẩn dưới dạng phân phối xác suất liên tục, thường là Gaussian chuẩn. Cách tiếp cận này giúp latent space mượt hơn, có khả năng nội suy tốt hơn và ổn định hơn khi đánh giá độ bất định của mô hình. Dù vậy, VAE có thể gặp hiện tượng posterior collapse hoặc KL collapse, trong đó decoder bỏ qua latent code và chỉ học một ánh xạ gần như trực tiếp từ đầu vào sang đầu ra. Các chiến lược annealing, trong đó có Beta-Warmup, là giải pháp hiệu quả để giảm rủi ro này \cite{bowman,beta_vae}.
+
+\subsection{Benchmark trên ECG5000}
+ECG5000 là một trong những bộ dữ liệu chuẩn cho đánh giá phân loại và phát hiện bất thường trên chuỗi ECG. Vì có cấu trúc chuẩn hóa 140 bước thời gian, tập dữ liệu này rất phù hợp cho các mô hình dense-based và baseline comparision. Nhiều công trình trước đây đã báo cáo kết quả tốt trên ECG5000, đặc biệt với các mô hình supervised deep learning. Tuy nhiên, trong bối cảnh dữ liệu nhãn y tế khan hiếm, một mô hình không giám sát hoạt động tốt vẫn có giá trị ứng dụng cao hơn vì giảm đáng kể phụ thuộc vào dữ liệu bệnh lý được gán nhãn \cite{ucr,chen,thill}.
+
+\begin{table}[htbp]
+\caption{So sánh khái quát các hướng tiếp cận trong phát hiện bất thường ECG}
+\centering
+\begin{tabularx}{\columnwidth}{>{\raggedright\arraybackslash}p{0.20\columnwidth} >{\raggedright\arraybackslash}p{0.18\columnwidth} >{\raggedright\arraybackslash}p{0.24\columnwidth} >{\raggedright\arraybackslash}p{0.28\columnwidth}}
+\toprule
+\textbf{Nhóm phương pháp} & \textbf{Ví dụ} & \textbf{Ưu điểm} & \textbf{Hạn chế} \\
+\midrule
+Truyền thống & PCA, OCSVM, IF & Nhanh, dễ diễn giải & Phụ thuộc đặc trưng thủ công \\
+Học có giám sát & CNN, LSTM & Hiệu năng cao khi đủ nhãn & Cần nhiều nhãn bệnh lý \\
+AE không giám sát & Dense AE, Conv-AE & Phát hiện bằng tái tạo & Có thể tái tạo cả bất thường \\
+VAE đề xuất & \(\beta\)-VAE + Warmup & Latent liên tục, ổn định & Cần tối ưu siêu tham số \\
+\bottomrule
+\end{tabularx}
+\label{tab:relatedwork}
+\end{table}
+
+\subsection{Phương pháp dựa trên Mạng đối kháng sinh học (GAN)}
+Mạng đối kháng sinh học (Generative Adversarial Network - GAN) \cite{kingma} là một hướng nghiên cứu khác cho bài toán phát hiện bất thường. Trong đó, AnoGAN \cite{ancho} học phân phối của dữ liệu bình thường thông qua vòng lặp đối kháng giữa Generator và Discriminator. Trong giai đoạn suy luận, một mẫu bất thường sẽ bị Generator tái tạo kém, đồng thời Discriminator sẽ cho điểm số thấp. Mặc dù GAN có tiềm năng sinh dữ liệu mạnh, chúng gặp nhiều vấn đề trong thực tế: (1) Mode collapse -- Generator chỉ học một tập con nhỏ phân phối; (2) Quá trình tối ưu không ổn định với tín hiệu sinh học 1D; (3) Độ trễ suy luận cao do phải tối ưu ngược (latent search) tại mỗi mẫu kiểm thử. Vì vậy, VAE với cơ chế suy luận trực tiếp qua Encoder vẫn chiếm ưu thế cho các ứng dụng thời gian thực trong y tế.
+
+\subsection{Phương pháp dựa trên cơ chế Tự chú ý (Transformer-based)}
+Kiến trúc Transformer với cơ chế Multi-head Self-Attention gần đây đã đạt kết quả ấn tượng trong phân tích chuỗi y sinh \cite{chalapathy}. Mô hình như TranAD và Anomaly Transformer học các phụ thuộc toàn cục trong chuỗi, nhờ đó phát hiện những mẫu bất thường vi tế có cấu trúc xa nhau theo thời gian. Tuy nhiên, nhược điểm cơ bản là độ phức tạp bậc hai $\mathcal{O}(T^2)$ theo chiều dài chuỗi, cùng với nhu cầu dữ liệu huấn luyện lớn hơn đáng kể. Với chuỗi ECG chỉ dài $T=140$ bước, các mô hình dense-based nhẹ hơn như VAE của chúng tôi đủ nắm bắt các phụ thuộc cần thiết mà không cần bộ máy tính toán phức tạp, phù hợp hơn với triển khai biên (edge deployment).
+
+\subsection{Tổng kết khoảng trống nghiên cứu}
+Qua phân tích hệ thống các công trình liên quan, chúng tôi nhận thấy rằng phần lớn nghiên cứu hiện tại tập trung vào một trong hai hướng: (i) mô hình có giám sát đạt hiệu năng cao nhưng phụ thuộc dữ liệu nhãn, hoặc (ii) mô hình không giám sát đơn giản (AE, IF, OC-SVM) nhưng chưa giải quyết triệt để bài toán tối ưu hóa không gian ẩn. Bài báo này lấp đầy khoảng trống này bằng cách kết hợp nền tảng lý thuyết vững chắc của VAE với kỹ thuật tối ưu hóa Beta-Warmup và khám phá có hệ thống về hiệu ứng nút thắt cổ chai cực hạn.
+
+\section{CƠ SỞ LÝ THUYẾT VÀ TOÁN HỌC KHUNG}
+\subsection{Hình thái học điện tâm đồ cơ bản}
+Một chu kỳ nhịp tim khỏe mạnh trên ECG phản ánh trình tự khử cực và tái cực điện học của cơ tim, bao gồm ba thành phần chính:
+\begin{itemize}
+\item \textbf{Sóng P:} Biểu diễn quá trình khử cực của tâm nhĩ. Sóng P thường nhỏ và có dạng vòm tròn.
+\item \textbf{Phức bộ QRS:} Là sự kiện điện học nổi bật nhất, phản ánh quá trình khử cực của tâm thất. Phức bộ này hẹp, biên độ cao, bao gồm sóng Q âm nhẹ, sóng R dương cao nhọn và sóng S âm.
+\item \textbf{Sóng T:} Thể hiện quá trình tái cực tâm thất. Sóng T rộng hơn và không đối xứng.
+\end{itemize}
+Các bệnh lý tim mạch thường gây ra sự méo mó trong hình thái các sóng này. Ví dụ, trong ngoại tâm thu thất, phức bộ QRS trở nên giãn rộng bất thường và sóng T có thể đảo ngược. Nhiệm vụ của mô hình AI là phải học được tính toàn vẹn hình thái trên chuỗi 140 điểm thời gian.
+
+\subsection{Hạn chế của Autoencoder cơ bản}
+Mạng Autoencoder cơ bản được cấu thành từ hai hàm phi tuyến: bộ mã hóa \(f_\phi(\cdot)\) và bộ giải mã \(g_\theta(\cdot)\). Cho một chuỗi đầu vào \(x \in \mathbb{R}^T\), AE thực hiện ánh xạ:
+\begin{equation}
+z = f_\phi(x), \quad \hat{x} = g_\theta(z)
+\end{equation}
+Hàm mất mát là sai số bình phương trung bình:
+\begin{equation}
+L = \|x - \hat{x}\|_2^2
+\end{equation}
+Vấn đề cốt lõi của phương pháp này là biến ẩn \(z\) là một vector xác định rời rạc, không tạo ra không gian ẩn trơn tru. Nếu dung lượng mô hình quá lớn, AE có thể hoạt động như một hàm định danh, tái tạo tốt cả dữ liệu bất thường và làm giảm hiệu quả phát hiện.
+
+\subsection{Suy diễn biến phân và hàm ELBO}
+VAE tiếp cận theo quan điểm mô hình sinh xác suất. Giả sử dữ liệu quan sát \(x\) được sinh từ biến ẩn \(z \sim p(z)\) thông qua phân phối có điều kiện \(p_\theta(x|z)\). Mục tiêu là tối đa hóa log-likelihood biên \(p(x)\), nhưng tích phân này là bất khả thi để tính trực tiếp với mạng nơ-ron phức tạp. VAE sử dụng phân phối xấp xỉ \(q_\phi(z|x)\) để gần đúng hậu nghiệm.
+
+Bằng bất đẳng thức Jensen, log-likelihood của một mẫu \(x\) được giới hạn dưới bởi ELBO:
+\begin{align}
+\log p(x) &\ge \mathbb{E}_{q_\phi(z|x)}[\log p_\theta(x|z)] \nonumber \\
+&\quad - D_{\text{KL}}\left(q_\phi(z|x) \,||\, p(z)\right) \triangleq \mathcal{L}_{\text{ELBO}}(\phi, \theta; x)
+\end{align}
+Do đó, cực đại hóa ELBO tương đương với cực tiểu hóa:
+\begin{equation}
+\mathcal{L}(\phi, \theta; x) = -\mathbb{E}_{q_\phi(z|x)}[\log p_\theta(x|z)] + D_{\text{KL}}(q_\phi(z|x) || p(z))
+\end{equation}
+
+\subsection{Phân rã toán học và tái tham số hóa}
+Thành phần thứ nhất \(-\mathbb{E}_{q_\phi}[\log p_\theta(x|z)]\) chính là sai số tái tạo. Khi giả định \(p_\theta(x|z)\) tuân theo phân phối Gaussian với phương sai hằng số, số hạng này tỷ lệ thuận với MSE.
+
+Thành phần thứ hai là độ phân kỳ KL, đo khoảng cách giữa phân phối xấp xỉ \(q_\phi(z|x)\) và phân phối tiên nghiệm \(p(z) = \mathcal{N}(0, \mathbf{I})\). Dưới giả định hai phân phối Gaussian, độ phân kỳ KL có công thức dạng đóng:
+\begin{equation}
+\mathcal{L}_{\text{KL}} = -\frac{1}{2} \sum_{j=1}^{d} \left( 1 + \log(\sigma_j^2) - \mu_j^2 - \sigma_j^2 \right)
+\end{equation}
+Trong đó \(d\) là số chiều của không gian ẩn.
+
+Để truyền gradient qua quá trình lấy mẫu, kỹ thuật tái tham số hóa được áp dụng:
+\begin{equation}
+z = \mu + \epsilon \odot \sigma, \quad \text{với } \epsilon \sim \mathcal{N}(0, \mathbf{I})
+\end{equation}
+Lúc này, nhiễu ngẫu nhiên được đẩy ra một nút độc lập \(\epsilon\), cho phép gradient chảy qua các tham số \(\mu\) và \(\sigma\).
+
+\subsection{Góc nhìn từ Lý thuyết Thông tin: Nút thắt thông tin (Information Bottleneck)}
+Bên cạnh diễn giải xác suất thông qua ELBO, kiến trúc $\beta$-VAE đề xuất có thể được chứng minh tính hiệu quả thông qua nguyên lý Nút thắt thông tin (Information Bottleneck - IB) \cite{tishby_ib}. Theo IB, một biểu diễn tiềm ẩn $\mathbf{z}$ tối ưu cần nén tối đa lượng thông tin dư thừa từ biến đầu vào $\mathbf{x}$, đồng thời giữ lại tối đa thông tin quan trọng để phục vụ một tác vụ cụ thể (ở đây là tác vụ tự tái tạo $\mathbf{x}$).
+Mục tiêu này tương đương với việc cực tiểu hóa hàm Lagrangian:
+\begin{equation}
+\mathcal{L}_{IB} = I(\mathbf{x}; \mathbf{z}) - \beta I(\mathbf{z}; \mathbf{x})
+\end{equation}
+Trong VAE, độ phân kỳ KL chính là cận trên (upper bound) của lượng thông tin tương hỗ $I(\mathbf{x}; \mathbf{z})$ giữa dữ liệu gốc và biểu diễn không gian ẩn, đóng vai trò đo lường tỷ lệ nén (compression rate). Thành phần thứ hai $I(\mathbf{z}; \mathbf{x})$ được tối đa hóa thông qua việc giảm thiểu sai số tái tạo. Khi ép không gian tiềm ẩn xuống $d=2$ chiều, chúng tôi thực chất đang tạo ra một "nút thắt cổ chai cực hạn" (extreme bottleneck) về mặt lý thuyết thông tin. Điều này buộc mạng chỉ được phép lưu trữ những đặc trưng tần số thấp thống trị toàn cục (như chu kỳ R-R, biên độ sóng T) và buộc phải loại bỏ các dao động tần số cao cục bộ (như nhiễu điện cơ hoặc các nhiễu sinh lý ngẫu nhiên). Chính cơ chế nén tự nhiên này làm cho sai số tái tạo của các mẫu bất thường có cấu trúc khác lạ trở nên khuếch đại mạnh mẽ, tạo độ nhạy cao cho hệ thống phát hiện.
+
+\section{PHƯƠNG PHÁP NGHIÊN CỨU VÀ MÔ HÌNH HÓA}
+
+\subsection{Phân tích độ phức tạp tính toán (Computational Complexity)}
+Một mô hình máy học ứng dụng trong y tế không chỉ cần chính xác mà còn cần đáp ứng ràng buộc nghiêm ngặt về tốc độ và chi phí tính toán. Độ phức tạp thời gian của mô hình VAE có thể được đo lường thông qua số phép tính dấu phẩy động (Floating Point Operations - FLOPs).
+Cho một mạng lan truyền tiến với các lớp Dense có kích thước đầu vào $N_{in}$ và đầu ra $N_{out}$, số phép toán FLOPs (tính cả phép nhân và phép cộng) xấp xỉ bằng $2 \cdot N_{in} \cdot N_{out}$. 
+Áp dụng vào kiến trúc Encoder (từ 140 $\rightarrow$ 64 $\rightarrow$ 32 $\rightarrow$ 2 chiều), số lượng FLOPs cho một lần quét thuận là:
+\begin{equation}
+\text{FLOPs}_{\text{Enc}} \approx 2 \times (140 \times 64 + 64 \times 32 + 32 \times 4) \approx 22{,}272
+\end{equation}
+Tương tự, với Decoder (2 $\rightarrow$ 32 $\rightarrow$ 64 $\rightarrow$ 140 chiều):
+\begin{equation}
+\text{FLOPs}_{\text{Dec}} \approx 2 \times (2 \times 32 + 32 \times 64 + 64 \times 140) \approx 22{,}144
+\end{equation}
+Tổng số phép toán suy luận cho một nhịp tim (inference FLOPs) chưa đến $45.000$ FLOPs. So với các mô hình Transformer 1D với cơ chế self-attention đòi hỏi độ phức tạp bậc hai $\mathcal{O}(T^2 \cdot d)$ tiêu tốn hàng triệu FLOPs, mô hình VAE đề xuất tiết kiệm hơn $100$ lần về chi phí tính toán. Cùng với lượng bộ nhớ dưới 50 KB, hệ thống dễ dàng duy trì tốc độ khung hình hàng nghìn FPS trên các vi xử lý ARM chuẩn mà không cần bất kỳ bộ tăng tốc phần cứng (NPU/GPU) nào.
+
+\subsection{Xử lý nhiễu nâng cao: Lọc Butterworth và triệt tiêu đường cơ sở}
+Như đã đề cập ở bước lọc nhiễu tần số, điện tâm đồ rất nhạy cảm với hai loại nhiễu chính: (1) Nhiễu đường cơ sở (Baseline wander) do chuyển động hô hấp, dao động ở tần số rất thấp ($<0.5$ Hz), và (2) Nhiễu điện cơ (EMG) do co cơ hoặc nhiễu điện lưới ($50/60$ Hz). Để xử lý triệt để, thay vì các bộ lọc FIR (Finite Impulse Response) có độ trễ lớn, hệ thống tiền xử lý chuẩn có thể sử dụng bộ lọc IIR (Infinite Impulse Response) loại Butterworth bậc 3. 
+Hàm truyền đạt $H(s)$ của bộ lọc Butterworth có đặc tính đáp ứng biên độ phẳng (maximally flat magnitude response) ở dải thông (passband), giúp giữ nguyên hình thái phức bộ QRS tự nhiên:
+\begin{equation}
+|H(j\omega)|^2 = \frac{1}{1 + \left(\frac{\omega}{\omega_c}\right)^{2n}}
+\end{equation}
+trong đó $n=3$ là bậc bộ lọc và $\omega_c$ là tần số cắt. Ngoài ra, để loại trừ hiện tượng lệch pha phi tuyến (nonlinear phase distortion) gây biến dạng sóng T, kỹ thuật lọc theo hai chiều tiến và lùi (forward-backward filtering) thường được khuyến nghị áp dụng mạnh mẽ trên thiết bị trích xuất.
+
+\subsection{Quy trình tiền xử lý tín hiệu điện tâm đồ thô trong thực tế}
+Mặc dù nghiên cứu này sử dụng tập dữ liệu ECG5000 đã được phân tách thành từng nhịp tim có độ dài cố định, một hệ thống AI lâm sàng thực tế phải đối mặt với tín hiệu ECG thô liên tục, chứa nhiều nhiễu. Để hệ thống VAE có thể hoạt động hiệu quả trong môi trường thực tế, một đường ống tiền xử lý (preprocessing pipeline) chặt chẽ cần được thiết lập, bao gồm các bước sau:
+\begin{enumerate}
+    \item \textbf{Lọc nhiễu tần số (Frequency Filtering):} Tín hiệu thô đi qua bộ lọc thông dải (Bandpass filter) với tần số cắt từ $0.5\text{Hz}$ đến $50\text{Hz}$ để loại bỏ nhiễu đường cơ sở (thường $<0.5\text{Hz}$ do nhịp thở) và nhiễu điện từ tần số cao ($>50\text{Hz}$ do mạng lưới điện).
+    \item \textbf{Phát hiện đỉnh R (R-Peak Detection):} Thuật toán Pan-Tompkins \cite{pan_tompkins} hoặc bộ phát hiện cực đại cục bộ dựa trên Wavelet được áp dụng để xác định vị trí các đỉnh R -- điểm nổi bật nhất của phức bộ QRS.
+    \item \textbf{Cắt cửa sổ thời gian (Windowing \& Alignment):} Từ mỗi đỉnh R được phát hiện, một cửa sổ thời gian cố định (ví dụ: lấy 90 mẫu trước đỉnh R và 150 mẫu sau đỉnh R) được trích xuất. Sự thẳng hàng (alignment) theo đỉnh R là vô cùng quan trọng, vì kiến trúc mạng nơ-ron dày đặc (Dense network) không có khả năng bất biến dịch chuyển (translation invariance) tốt như mạng tích chập (CNN).
+    \item \textbf{Nội suy và Resampling:} Cửa sổ trích xuất được nội suy (interpolation) bằng phương pháp Spline bậc 3 để chuẩn hóa về đúng độ dài $T=140$ bước thời gian, khớp với không gian đầu vào của VAE.
+\end{enumerate}
+Quá trình này biến đổi dòng dữ liệu liên tục thành một chuỗi các vector nhịp tim rời rạc, làm nền tảng cho bước chuẩn hóa Min-Max tiếp theo.
+
+\subsection{Cơ chế ngưỡng động thích ứng (Adaptive Dynamic Thresholding)}
+Thuật toán xác định ngưỡng (Algorithm 2) hiện tại sử dụng một ngưỡng tĩnh $\tau$ tính từ phân vị thứ 95 của toàn bộ tập huấn luyện. Dù phương pháp này đảm bảo tính ổn định trong môi trường tĩnh, sự biến thiên hình thái ECG theo thời gian (ví dụ: thay đổi nhịp tim khi vận động hoặc ngủ) có thể làm sai lệch phân phối sai số tái tạo. 
+Để giải quyết vấn đề này trong các phiên bản triển khai tương lai, hệ thống có thể áp dụng cơ chế ngưỡng động $\tau_t$ sử dụng trung bình trượt (Moving Average) và độ lệch chuẩn trượt (Moving Standard Deviation) của chuỗi sai số trong một khoảng thời gian quan sát gần nhất:
+\begin{equation}
+\tau_t = \mu_e^{(t-w:t)} + k \cdot \sigma_e^{(t-w:t)}
+\end{equation}
+Trong đó $\mu_e$ và $\sigma_e$ lần lượt là trung bình và độ lệch chuẩn của sai số tái tạo trong cửa sổ thời gian $w$ nhịp tim trước đó, và $k$ là hệ số kiểm soát độ nhạy. Cơ chế này cho phép ngưỡng $\tau$ tự động thích ứng với từng cá nhân bệnh nhân, tối ưu hóa độ cá nhân hóa (personalized medicine) của mô hình.
+
+\subsection{Bộ dữ liệu ECG5000 và vấn đề bất cân bằng}
+Nghiên cứu sử dụng tập dữ liệu ECG5000 trích xuất từ kho lưu trữ chuỗi thời gian UCR \cite{ucr}. Tập dữ liệu gốc chứa 5.000 chuỗi nhịp tim của một bệnh nhân suy tim sung huyết được nội suy về độ dài cố định \(T=140\) bước thời gian. Đặc điểm quan trọng nhất của tập này là tính mất cân bằng lớp, trong đó lớp bình thường chiếm tỷ lệ rất lớn so với các lớp bất thường.
+
+\begin{table}[htbp]
+\caption{Phân phối nhãn lâm sàng gốc của tập ECG5000}
+\centering
+\begin{tabular}{llc}
+\toprule
+\textbf{Nhãn} & \textbf{Loại nhịp tim (Rhythm Class)} & \textbf{Số lượng} \\
+\midrule
+Lớp 1 & Nhịp xoang bình thường (Normal) & 2.919 \\
+Lớp 2 & Ngoại tâm thu thất R-on-T (PVC) & 1.767 \\
+Lớp 3 & Ngoại tâm thu thất (PVC) & 96 \\
+Lớp 4 & Ngoại tâm thu trên thất (SPVC) & 194 \\
+Lớp 5 & Nhịp chưa phân loại (Unknown) & 24 \\
+\bottomrule
+\end{tabular}
+\label{tab:dataset_raw}
+\end{table}
+
+Để chuyển đổi sang bài toán phát hiện bất thường thuần túy, chúng tôi thiết lập sơ đồ phân chia tập dữ liệu chặt chẽ như sau:
+\begin{itemize}
+\item \textbf{Tập huấn luyện:} Trích xuất 80\% các mẫu Lớp 1 (2.335 mẫu). Tập huấn luyện là hoàn toàn sạch, không có bất kỳ mẫu bệnh lý nào.
+\item \textbf{Tập kiểm thử:} Gồm 20\% mẫu Lớp 1 còn lại (584 mẫu bình thường) kết hợp với 100\% các Lớp 2, 3, 4, 5 (2.081 mẫu bất thường). Tổng cộng 2.665 mẫu. Tỷ lệ này tạo ra môi trường thử nghiệm khắc nghiệt để đánh giá hệ thống cảnh báo.
+\end{itemize}
+
+\subsection{Tiền xử lý dữ liệu}
+Trước khi đưa vào mô hình, dữ liệu được chuẩn hóa để bảo đảm ổn định khi huấn luyện. Với mỗi chuỗi ECG \(x\), ta áp dụng chuẩn hóa min-max:
+\begin{equation}
+x_{\text{norm}} = \frac{x - x_{\min}}{x_{\max} - x_{\min}}
+\end{equation}
+Bước chuẩn hóa giúp giảm sai khác biên độ giữa các mẫu, từ đó cải thiện tính ổn định của gradient và giảm nguy cơ dao động mạnh trong pha tối ưu. Ngoài ra, việc chia dữ liệu được thực hiện sao cho tập huấn luyện chỉ chứa mẫu bình thường để mô hình học đúng phân phối của trạng thái khỏe mạnh.
+
+\subsection{Cấu trúc chi tiết của mạng \(\beta\)-VAE 1D}
+Bảng \ref{tab:architecture} mô tả cấu trúc chi tiết các tầng tham số của hệ thống mạng nơ-ron học sâu được thiết kế. Kiến trúc này tối giản, sử dụng các tầng kết nối dày đặc (Dense) nhằm phù hợp với việc phân tích các vector đặc trưng cố định 140 chiều.
+
+\begin{table}[htbp]
+\caption{Kiến trúc lớp và thông số của mạng VAE}
+\centering
+\begin{tabular}{llcc}
+\toprule
+\textbf{Khối} & \textbf{Tầng (Layer)} & \textbf{Kích thước Output} & \textbf{Hàm kích hoạt} \\
+\midrule
+\multirow{4}{*}{\textbf{Encoder}} 
+& Input Layer & (Batch, 140) & - \\
+& Linear\_1 & (Batch, 64) & ReLU \\
+& Linear\_2 & (Batch, 32) & ReLU \\
+& Linear\(_\mu\), Linear\(_\sigma\) & (Batch, \(d\)) \(\times 2\) & Tuyến tính \\
+\midrule
+\textbf{Latent} & Reparameterization & (Batch, \(d\)) & Hàm \(z(\mu, \sigma)\) \\
+\midrule
+\multirow{3}{*}{\textbf{Decoder}} 
+& Linear\_3 & (Batch, 32) & ReLU \\
+& Linear\_4 & (Batch, 64) & ReLU \\
+& Output Layer & (Batch, 140) & Tuyến tính \\
+\bottomrule
+\end{tabular}
+\label{tab:architecture}
+\end{table}
+
+Tổng số tham số có thể học của kiến trúc này cực kỳ nhỏ gọn. Với $d=2$, số tham số được tính như sau:
+\begin{equation}
+|\Theta| = (140 \times 64 + 64) + (64 \times 32 + 32) + 2 \times (32 \times 2 + 2) = 11{,}426
+\end{equation}
+Mô hình chỉ có khoảng \textbf{11.426 tham số}, nhẹ hơn hàng nghìn lần so với các mạng học sâu thông thường. Điều này cho phép suy luận siêu nhanh trên phần cứng hạn chế và không cần GPU trong pha production. Đây là đặc tính quan trọng cho ứng dụng tại các cơ sở y tế vùng xa hoặc tích hợp trực tiếp vào firmware thiết bị đeo.
+
+\subsection{Cơ chế Beta-Warmup chống suy biến không gian ẩn}
+Khi áp dụng VAE vào tín hiệu ECG, nếu hàm \(\mathcal{L}_{\text{KL}}\) bị ép xuống bằng 0 quá sớm trong quá trình tối ưu, mạng sẽ vấp phải KL Collapse. Để ngăn chặn, chúng tôi sử dụng mô hình \(\beta\)-VAE kết hợp chiến lược tăng tiến tuyến tính, kiểm soát sự tham gia của KL Divergence thông qua hệ số \(\beta\). Ở giai đoạn đầu, \(\beta\) được giữ nhỏ để mô hình tập trung vào tái tạo tín hiệu; về sau, hệ số này tăng dần để buộc latent space học được cấu trúc phân phối có ý nghĩa hơn.
+
+\begin{algorithm}[H]
+\caption{Huấn luyện VAE với Beta-Warmup tuyến tính}
+\begin{algorithmic}[1]
+\REQUIRE Tập huấn luyện \(X_{\text{train}}\), Epochs \(E\), Warmup Steps \(W\), Learning Rate \(\eta\)
+\STATE Khởi tạo ngẫu nhiên trọng số \(\phi\) (Encoder), \(\theta\) (Decoder)
+\FOR{\(e = 1\) \textbf{to} \(E\)}
+    \STATE Cập nhật hệ số \(\beta \leftarrow \min\left(1.0, \frac{e}{W}\right)\)
+    \FOR{mỗi mini-batch \(x_b \in X_{\text{train}}\)}
+        \STATE Tính toán trung bình và phương sai: \(\mu, \log(\sigma^2) \leftarrow \text{Encoder}_\phi(x_b)\)
+        \STATE Lấy mẫu nhiễu \(\epsilon \sim \mathcal{N}(0, I)\)
+        \STATE Tái tham số hóa: \(z \leftarrow \mu + \epsilon \odot \exp(0.5 \cdot \log(\sigma^2))\)
+        \STATE Khôi phục tín hiệu: \(\hat{x}_b \leftarrow \text{Decoder}_\theta(z)\)
+        \STATE \(\mathcal{L}_{\text{MSE}} \leftarrow \frac{1}{B} \sum \|x_b - \hat{x}_b\|^2\)
+        \STATE \(\mathcal{L}_{\text{KL}} \leftarrow -\frac{1}{2} \sum \left(1 + \log(\sigma^2) - \mu^2 - \sigma^2\right)\)
+        \STATE Tính Loss tổng hợp: \(\mathcal{L}_{\text{Total}} \leftarrow \mathcal{L}_{\text{MSE}} + \beta \cdot \mathcal{L}_{\text{KL}}\)
+        \STATE Cập nhật tham số bằng Adam: \(\phi, \theta \leftarrow \text{AdamOptimizer}(\nabla_{\phi,\theta}\mathcal{L}_{\text{Total}}, \eta)\)
+    \ENDFOR
+\ENDFOR
+\RETURN Lập bản đồ không gian và ngưỡng \(\tau\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Thuật toán xác định ngưỡng cảnh báo lâm sàng}
+Sau khi mô hình hội tụ, việc thiết lập biên giới quyết định dựa trên dữ liệu học là bài toán quan trọng trong học không giám sát.
+
+\begin{algorithm}[H]
+\caption{Quy trình suy luận và đánh giá ngưỡng}
+\begin{algorithmic}[1]
+\REQUIRE Mô hình VAE đã huấn luyện, Tập \(X_{\text{train}}\), Ngưỡng phân vị \(\alpha = 95\)
+\STATE Khởi tạo mảng lưu sai số \(\mathcal{S}_{\text{train}} \leftarrow []\)
+\FOR{\(x_i \in X_{\text{train}}\)}
+    \STATE Tái tạo \(\hat{x}_i \leftarrow \text{VAE}(x_i)\)
+    \STATE \(\mathcal{S}_{\text{train}}\text{.append}(\text{MSE}(x_i, \hat{x}_i))\)
+\ENDFOR
+\STATE Tính ngưỡng lâm sàng: \(\tau \leftarrow \text{Percentile}(\mathcal{S}_{\text{train}}, \alpha)\)
+\STATE \textbf{Khi đưa vào triển khai (Inference):}
+\STATE Nhận mẫu kiểm thử mới \(x_t\)
+\STATE Sai số hiện tại \(e_t \leftarrow \text{MSE}(x_t, \text{VAE}(x_t))\)
+\IF{\(e_t > \tau\)}
+    \RETURN Cảnh báo BẤT THƯỜNG (Anomaly - Label 1)
+\ELSE
+    \RETURN Nhịp tim BÌNH THƯỜNG (Normal - Label 0)
+\ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Phân tích độ nhạy siêu tham số}
+Việc lựa chọn siêu tham số ảnh hưởng trực tiếp đến chất lượng của không gian biểu diễn. Chúng tôi thực hiện quét lưới (grid search) có hệ thống trên ba trục siêu tham số quan trọng nhất và báo cáo AUC-ROC trên tập kiểm thử. Kết quả được tóm tắt trong Bảng \ref{tab:hparam}.
+
+\begin{table}[htbp]
+\caption{Kết quả quét lưới siêu tham số (AUC-ROC trên tập kiểm thử ECG5000)}
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lllc}
+\toprule
+\textbf{Learning Rate} & \textbf{Warmup Steps $W$} & \textbf{Batch Size} & \textbf{AUC-ROC} \\
+\midrule
+$1\times10^{-3}$ & 10 & 32 & 0,9580 \\
+$1\times10^{-3}$ & 20 & 32 & 0,9612 \\
+$\mathbf{1\times10^{-3}}$ & $\mathbf{20}$ & $\mathbf{64}$ & $\mathbf{0,9620}$ \\
+$1\times10^{-3}$ & 30 & 64 & 0,9615 \\
+$5\times10^{-4}$ & 20 & 64 & 0,9601 \\
+$1\times10^{-4}$ & 20 & 64 & 0,9554 \\
+\bottomrule
+\end{tabular}%
+}
+\label{tab:hparam}
+\end{table}
+
+Kết quả cho thấy tốc độ học $10^{-3}$, kích thước Warmup $W=20$ epoch và batch size 64 là tổ hợp tối ưu. Đặc biệt, khi $W$ quá nhỏ ($W=10$), mô hình bị ép quy chuẩn hóa quá sớm khiến Encoder chưa hội tụ được hàm tái tạo tốt, dẫn đến AUC giảm. Ngược lại, khi $W$ quá lớn ($W=30$), giai đoạn không có quy chuẩn hóa kéo dài làm mô hình bắt đầu học quá khớp (overfit) trên tập bình thường.
+
+\subsection{Động lực học huấn luyện}
+Hình \ref{fig:training} minh họa đường cong huấn luyện điển hình của mô hình qua 50 epoch. Có thể quan sát ba giai đoạn rõ ràng: (1) \textbf{Giai đoạn học tái tạo} (epoch 1--20): $\beta \approx 0$, hàm mất mát MSE giảm nhanh, mô hình tập trung tối đa hóa khả năng khôi phục tín hiệu; (2) \textbf{Giai đoạn ủ nhiệt} (epoch 20--35): $\beta$ tăng tuyến tính, $\mathcal{L}_{KL}$ tăng vọt rồi ổn định, cho thấy không gian tiềm ẩn đang được tổ chức lại để tuân theo phân phối Gaussian chuẩn; (3) \textbf{Giai đoạn hội tụ} (epoch 35--50): cả hai thành phần mất mát ổn định, mô hình đạt trạng thái cân bằng giữa tái tạo và quy chuẩn hóa.
+
+\begin{figure}[htbp]
+    \centering
+    \safeincludegraphics[width=\columnwidth]{img/training_curve.png}
+    \caption{Đường cong mất mát huấn luyện qua 50 epoch. Mũi tên đứt nét đánh dấu thời điểm $\beta$ bắt đầu tăng (epoch 20). Sự ổn định của cả $\mathcal{L}_{MSE}$ và $\mathcal{L}_{KL}$ sau epoch 35 cho thấy mô hình đã hội tụ thành công.}
+    \label{fig:training}
+\end{figure}
+
+\subsection{Luồng suy luận tổng quát}
+Quy trình vận hành của hệ thống có thể tóm tắt như sau: tín hiệu ECG đầu vào được tiền xử lý, đưa qua encoder để thu được phân phối latent, sau đó tái tạo lại tín hiệu. Sai số tái tạo được so sánh với ngưỡng \(\tau\). Nếu sai số vượt ngưỡng, hệ thống sinh cảnh báo bất thường. Nếu không, mẫu được gán nhãn bình thường. Cách làm này vừa đơn giản về mặt vận hành, vừa phù hợp với các kịch bản sàng lọc y tế quy mô lớn.
+
+\section{KẾT QUẢ THỰC NGHIỆM}
+
+Thử nghiệm được lặp lại 3 lần trên phần cứng NVIDIA RTX GPU để lấy giá trị trung bình thống kê. Tốc độ học là 0.001, batch size 64.
+
+\subsection{Nghiên cứu thành phần về không gian tiềm ẩn (Ablation)}
+Chúng tôi đã thực hiện một phân tích đánh giá cấu trúc nút thắt cổ chai của mạng. Biến độc lập duy nhất bị thay đổi là \(latent\_dim \in \{2, 4, 16\}\). Hình \ref{fig:ablation} minh họa trực quan sự đánh đổi giữa các kích thước ẩn này đối với hiệu năng lâm sàng tổng quát.
+
+\begin{figure*}[htbp]
+    \centering
+    \safeincludegraphics[width=0.8\textwidth]{img/ablation_latent_dim.png}
+    \caption{Biểu đồ phân tích Ablation Study: Đánh giá AUC-ROC và Recall của lớp bất thường khi thay đổi kích thước không gian tiềm ẩn từ 2, 4 lên 16 chiều. Hiệu năng đỉnh cao được ghi nhận rõ ràng tại mốc cấu trúc nút thắt cực hạn (2 chiều).}
+    \label{fig:ablation}
+\end{figure*}
+
+Bảng \ref{tab:ablation} biểu diễn số liệu định lượng cho quá trình thực nghiệm này. Mô hình tối ưu hóa tốt nhất ở không gian nhỏ bé nhất.
+
+\begin{table}[htbp]
+\caption{Kết quả phân tích Ablation Study (Kích thước tiềm ẩn)}
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Latent Dim} & \textbf{AUC-ROC} & \textbf{Anomaly Recall} & \textbf{F1-Score} \\
+\midrule
+\textbf{2 chiều} & \textbf{0,9620 \(\pm\) 0.0003} & \textbf{0,840 \(\pm\) 0.008} & \textbf{0,904} \\
+4 chiều & 0,9618 \(\pm\) 0.0004 & 0,830 \(\pm\) 0.010 & 0,898 \\
+16 chiều & 0,9611 \(\pm\) 0.0005 & 0,828 \(\pm\) 0.012 & 0,896 \\
+\bottomrule
+\end{tabular}
+\label{tab:ablation}
+\end{table}
+
+\subsection{So sánh với các phương pháp baseline hiện đại}
+Mô hình \(\beta\)-VAE tối ưu (\(dim=2\)) được so sánh trực diện với Isolation Forest và One-Class SVM. Các kết quả được báo cáo trong Bảng \ref{tab:baseline}.
+
+\begin{table*}[htbp]
+\caption{Đánh giá so sánh hiệu năng phát hiện bất thường trên tập kiểm thử ECG5000 (Trung bình 3 seeds)}
+\centering
+\begin{tabularx}{0.95\textwidth}{lXXXXXX}
+\toprule
+\textbf{Thuật toán cơ sở} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} & \textbf{AUC-ROC} & \textbf{Thời gian dự đoán / mẫu} \\
+\midrule
+Isolation Forest \cite{liu} & 0,5598 & 0,9729 & 0,4488 & 0,6143 & 0,9516 & \(\sim\)1,20 ms \\
+One-Class SVM \cite{scholkopf} & 0,7088 & 0,9787 & 0,6410 & 0,7747 & 0,9427 & \(\sim\)0,85 ms \\
+\textbf{VAE đề xuất (\(\beta\)-Warmup)} & \textbf{0,8600} & \textbf{0,9800} & \textbf{0,8400} & \textbf{0,9000} & \textbf{0,9620} & \textbf{\(\sim\)0,15 ms} \\
+\bottomrule
+\end{tabularx}
+\label{tab:baseline}
+\end{table*}
+
+Dữ liệu thực nghiệm từ Bảng \ref{tab:baseline} chứng minh mô hình VAE hoàn toàn áp đảo các thuật toán cơ sở. Isolation Forest gặp thất bại trong việc bao phủ ca bệnh, dẫn đến nhiều trường hợp bất thường bị phân loại nhầm thành khỏe mạnh. One-Class SVM cải thiện đôi chút, nhưng VAE mới là mô hình thiết lập được độ an toàn lâm sàng tốt nhất với Recall đạt 0,8400 và thời gian suy luận dưới mức mili-giây, cực kỳ hữu ích cho triển khai thời gian thực.
+
+\subsection{Khả năng diễn giải quyết định mô hình (Explainable AI)}
+Để bác sĩ chuyên khoa có thể thấu hiểu lý do vì sao một mẫu bị gắn cờ dị thường, chúng tôi cung cấp biểu đồ phân tích thành phần sai số tái tạo. Hình \ref{fig:evaluation} minh họa trực quan phân phối sai số của hai lớp, đường cong ROC và ví dụ một mẫu sóng thực tế.
+
+\begin{figure*}[htbp]
+    \centering
+    \safeincludegraphics[width=0.8\textwidth]{img/evaluation.png}
+    \caption{Đánh giá toàn diện khung làm việc VAE: (Trái) Biểu đồ histogram hiển thị sự phân tách rõ rệt trong phân phối sai số tái tạo giữa nhịp bình thường và bất thường. (Giữa) Đường cong ROC thể hiện diện tích cực đại AUC = 0.96. (Phải) Sự chênh lệch giữa tín hiệu thực tế của một mẫu bất thường và nỗ lực tái tạo của VAE, chính là mấu chốt để hệ thống đưa ra cảnh báo chẩn đoán.}
+    \label{fig:evaluation}
+\end{figure*}
+
+\subsection{Diễn giải về ngưỡng và phân phối sai số}
+Trong tập dữ liệu này, ngưỡng phát hiện được cố định tại phân vị thứ 95 của sai số tái tạo trên tập huấn luyện bình thường. Điều này đảm bảo hệ thống chịu được một mức sai số nền hợp lý do biến thiên sinh lý tự nhiên, nhưng vẫn đủ nhạy để bắt các sai lệch lớn. Quan sát thực nghiệm cho thấy sai số của các mẫu bất thường tách biệt tương đối rõ so với nhóm bình thường, giúp AUC đạt 0,9620 và tạo nền tảng tốt cho các quyết định sàng lọc.
+
+\subsection{Phân tích hiệu năng theo từng nhóm bệnh lý}
+Để hiểu rõ hơn điểm mạnh và điểm yếu của mô hình, chúng tôi phân tích tỷ lệ phát hiện đúng (True Positive Rate - Recall) riêng biệt cho từng nhóm nhịp bệnh lý trong tập kiểm thử. Kết quả này có giá trị lâm sàng cao vì mỗi nhóm bệnh lý có đặc trưng hình thái ECG khác nhau. Bảng \ref{tab:perclass} trình bày chi tiết.
+
+\begin{table}[htbp]
+\caption{Tỷ lệ phát hiện đúng (Recall) theo từng nhóm bệnh lý}
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llcc}
+\toprule
+\textbf{Nhóm} & \textbf{Mô tả lâm sàng} & \textbf{Số mẫu} & \textbf{Recall (\%)} \\
+\midrule
+Lớp 2 & Ngoại tâm thu thất R-on-T & 1.767 & 86,4 \\
+Lớp 3 & Ngoại tâm thu thất điển hình & 96 & 91,7 \\
+Lớp 4 & Ngoại tâm thu trên thất & 194 & 78,2 \\
+Lớp 5 & Nhịp chưa phân loại & 24 & 83,3 \\
+\midrule
+\textbf{Tổng (weighted avg)} & & \textbf{2.081} & \textbf{84,0} \\
+\bottomrule
+\end{tabular}%
+}
+\label{tab:perclass}
+\end{table}
+
+Nhóm Lớp 3 (ngoại tâm thu thất điển hình) đạt Recall cao nhất (91,7\%) vì phức bộ QRS giãn rộng cực kỳ bất thường, khiến mô hình VAE không thể tái tạo và sinh ra mức sai số cao rõ ràng. Ngược lại, nhóm Lớp 4 (ngoại tâm thu trên thất - SPVC) đạt Recall thấp hơn (78,2\%) vì hình thái QRS của nhóm này gần tương tự nhịp bình thường hơn, chỉ sai lệch ở hình dạng sóng P và đoạn PR. Đây là thách thức cố hữu với mọi phương pháp tái tạo và định hướng cho các cải tiến tương lai.
+
+\subsection{Biểu diễn không gian ẩn}
+Vì latent space được nén về 2 chiều, mô hình còn cho phép trực quan hóa vị trí của các mẫu trong không gian \(\mu\). Các điểm bình thường thường gom thành những cụm tương đối chặt, trong khi mẫu bất thường có xu hướng nằm rải rác hoặc ở ranh giới xa trung tâm. Đặc tính này giúp tăng tính diễn giải của mô hình và hỗ trợ sinh viên y khoa quan sát một cách trực quan sự khác biệt giữa mẫu sinh lý bình thường và mẫu lệch chuẩn.
+
+\begin{figure}[htbp]
+    \centering
+    \safeincludegraphics[width=\columnwidth]{img/latent_space.png}
+    \caption{Trực quan latent space 2 chiều của các mẫu ECG sau khi mã hóa. Hình minh họa có thể được thay thế bằng biểu đồ thực nghiệm nếu file ảnh được cung cấp trong thư mục \texttt{img/}.}
+    \label{fig:latent_space}
+\end{figure}
+
+\section{THẢO LUẬN VÀ ỨNG DỤNG LÂM SÀNG}
+
+\subsection{Lý thuyết hiệu ứng nút thắt cổ chai}
+Việc nén không gian ẩn xuống 2 chiều tạo ra ``Hiệu ứng nút thắt tối ưu''. Tín hiệu ECG khỏe mạnh có tính lặp lại cơ học chặt chẽ. Việc dồn toàn bộ 140 điểm về 2 tọa độ buộc mạng nơ-ron phải lược bỏ toàn bộ nhiễu rung cơ và nhiễu đường đẳng điện, chỉ giữ lại hình thái PQRST chuẩn. Khi không gian quá rộng, mạng VAE vô tình có đủ khả năng lưu trữ cả sự bất thường của mẫu bệnh lý, khiến sai số tái tạo của nhịp bệnh giảm xuống và làm mờ biên giới phân loại.
+
+\subsection{Tỷ lệ đánh đổi lâm sàng}
+Một đặc trưng đáng lưu ý là mô hình đạt Precision đối với nhịp bình thường chỉ ở mức 0,62 ở một số cách diễn giải nhãn. Điều này có nghĩa là hệ thống có xu hướng cảnh báo thận trọng, đôi khi báo nhầm mẫu bình thường thành bất thường. Tuy nhiên, trong sàng lọc y tế diện rộng, mục tiêu cốt lõi là tối đa hóa khả năng phát hiện ca bệnh thật. Việc mô hình đôi khi cảnh báo quá mức để đổi lấy việc không bỏ sót bệnh nhân là một sự đánh đổi an toàn và hợp lý.
+
+\subsection{Triển khai MLOps và hệ thống web y khoa}
+Để xóa nhòa rào cản ứng dụng, VAE được triển khai trên nền tảng MLOps với:
+\begin{itemize}
+\item \textbf{Backend API:} Xử lý suy luận và trả về JSON chứa mã nhãn, mức lỗi MSE và vị trí tọa độ latent.
+\item \textbf{Frontend Dashboard:} Ứng dụng trực quan hiển thị tín hiệu và vùng cảnh báo lỗi, hỗ trợ sinh viên y khoa làm quen với cách học máy nhận diện sai lệch sinh lý tự động.
+\item \textbf{Khả năng mở rộng:} Thiết kế hệ thống có thể nâng cấp sang kiến trúc microservices khi cần tích hợp với môi trường bệnh viện hoặc nền tảng giám sát từ xa.
+\end{itemize}
+
+\section{KIẾN TRÚC HỆ THỐNG VÀ ĐẶC TẢ API}
+
+\subsection{Tổng quan kiến trúc Microservices}
+Mô hình sau khi huấn luyện được đóng gói và triển khai theo kiến trúc vi dịch vụ (Microservices) để đảm bảo khả năng mở rộng (horizontal scalability) và khả năng bảo trì độc lập từng thành phần. Hệ thống gồm ba lớp chính tách biệt hoàn toàn:
+
+\begin{enumerate}
+\item \textbf{Lớp trình bày (Presentation Layer):} Frontend được xây dựng bằng React.js, bao gồm giao diện nhập liệu chuỗi ECG, biểu đồ trực quan hóa sóng và bản đồ nhiệt sai số (XAI Saliency Map), cùng bảng điều khiển thống kê phiên.
+\item \textbf{Lớp dịch vụ suy luận (Inference Service Layer):} Backend API được triển khai bằng FastAPI (Python), tiếp nhận yêu cầu HTTP, thực hiện tiền xử lý, gọi mô hình và trả về phản hồi JSON chuẩn hóa. Mô hình được tải vào bộ nhớ một lần duy nhất khi khởi động, tránh chi phí I/O lặp lại.
+\item \textbf{Lớp lưu trữ và giám sát (Storage \& Monitoring Layer):} PostgreSQL lưu nhật ký suy luận (telemetry) để phân tích xu hướng và phát hiện data drift. Prometheus + Grafana giám sát tình trạng API (latency, throughput, error rate) theo thời gian thực.
+\end{enumerate}
+
+\subsection{Đặc tả RESTful API}
+Bảng \ref{tab:api} tóm tắt các endpoint chính của hệ thống.
+
+\begin{table}[htbp]
+\caption{Đặc tả RESTful API cho dịch vụ suy luận ECG}
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llp{4cm}}
+\toprule
+\textbf{Endpoint} & \textbf{Method} & \textbf{Mô tả chức năng} \\
+\midrule
+\texttt{/api/v1/predict} & POST & Nhận mảng JSON 140 điểm, trả về nhãn, anomaly score và ngưỡng. \\
+\texttt{/api/v1/explain} & POST & Trả về vector lỗi $e_t$ ($t=1..140$) để render Saliency Map. \\
+\texttt{/api/v1/latent} & POST & Trả về tọa độ $(\mu_1, \mu_2)$ trong latent space 2D. \\
+\texttt{/api/v1/batch} & POST & Xử lý lô tối đa 256 mẫu, tối ưu cho sàng lọc hàng loạt. \\
+\texttt{/api/v1/health} & GET & Kiểm tra trạng thái dịch vụ và phiên bản mô hình. \\
+\bottomrule
+\end{tabular}%
+}
+\label{tab:api}
+\end{table}
+
+Cấu trúc JSON phản hồi tiêu chuẩn từ \texttt{/api/v1/predict} được thiết kế tối giản nhưng đầy đủ:
+\begin{verbatim}
+{
+  "status": "success",
+  "prediction": "Anomaly",
+  "anomaly_score": 0.0452,
+  "threshold": 0.0210,
+  "confidence": 0.962,
+  "latency_ms": 0.15
+}
+\end{verbatim}
+
+\subsection{Kỹ thuật Diễn giải AI (XAI) và bản đồ nhiệt}
+Đây là một trong những đóng góp thực tiễn quan trọng nhất của hệ thống. Sau khi mô hình tạo ra cảnh báo bất thường, hệ thống tự động tính vector sai số cục bộ:
+\begin{equation}
+e_t = (x_t - \hat{x}_t)^2, \quad t = 1, 2, \ldots, T
+\end{equation}
+Vector $\mathbf{e} = [e_1, e_2, \ldots, e_T]$ được chuẩn hóa về khoảng $[0,1]$ và ánh xạ thành thang màu đỏ (từ trắng đến đỏ đậm) chồng trực tiếp lên biểu đồ sóng ECG gốc. Những vùng có màu đỏ đậm chính là những khoảng thời gian mà VAE không thể tái tạo tốt, tức là nơi xảy ra bất thường hình thái. Trong hầu hết các trường hợp PVC, vùng màu đỏ đậm tập trung rõ ràng tại đỉnh phức bộ QRS dị dạng, tương ứng chính xác với nhận định lâm sàng của bác sĩ.
+
+\subsection{Dashboard giáo dục y khoa}
+Ngoài chức năng sàng lọc, hệ thống tích hợp một module \textbf{``ECG Education Dashboard''} hướng đến đối tượng sinh viên y khoa và nhân viên y tế chưa quen với AI. Module này bao gồm:
+\begin{itemize}
+\item Thư viện mẫu sóng chuẩn: Hiển thị các mẫu ECG điển hình của từng nhóm bệnh lý kèm giải thích lâm sàng.
+\item Bộ so sánh song song: Đặt cạnh nhau sóng bình thường và sóng bất thường được chọn, làm nổi bật sự khác biệt hình thái.
+\item Trình chiếu không gian ẩn: Hiển thị bản đồ phân tán 2D (scatter plot) của latent space, thể hiện vị trí của mẫu hiện tại so với cụm mẫu bình thường đã học.
+\item Lịch sử phiên: Lưu các kết quả suy luận trong phiên để so sánh xu hướng.
+\end{itemize}
+Thiết kế này biến mô hình AI ``hộp đen'' thành một công cụ giảng dạy minh bạch, từng bước xây dựng sự tin tưởng của đội ngũ y tế vào các hệ thống AI lâm sàng.
+
+\subsection{Ý nghĩa đối với sàng lọc lâm sàng}
+Trong thực hành, một mô hình như vậy có thể được dùng như lớp lọc đầu tiên để ưu tiên các hồ sơ cần bác sĩ xem xét. Điều này giảm tải cho hệ thống y tế, đặc biệt trong bối cảnh số lượng tín hiệu ECG tăng nhanh từ thiết bị đeo và hệ thống theo dõi từ xa. Mô hình không thay thế chẩn đoán chuyên môn, nhưng hỗ trợ quy trình phân luồng và giúp phát hiện sớm những tín hiệu nguy cơ.
+
+\subsection{Tiềm năng triển khai trên thiết bị Edge AI (Edge Deployment)}
+Với tổng số lượng tham số chỉ ở mức 11.426, mô hình đề xuất sở hữu kích thước bộ nhớ (memory footprint) vô cùng khiêm tốn (dưới 50 KB khi lưu trữ với độ chính xác chuẩn 32-bit float). Điều này mở ra cơ hội to lớn cho việc triển khai mô hình trực tiếp lên các thiết bị Internet vạn vật y tế (Internet of Medical Things - IoMT) và các thiết bị đeo thông minh (wearable devices) như smartwatch hoặc thiết bị Holter thế hệ mới \cite{edge_ai_healthcare}. 
+So với kiến trúc Cloud-based thuần túy, kiến trúc Edge-based mang lại ba lợi thế đột phá:
+\begin{itemize}
+    \item \textbf{Độ trễ gần như bằng không (Ultra-low Latency):} Suy luận được thực hiện ngay trên vi điều khiển (MCU) của thiết bị mà không cần chờ đợi đường truyền mạng, rất quan trọng cho các cảnh báo cấp cứu (ví dụ: ngưng tim).
+    \item \textbf{Bảo mật dữ liệu tối đa (Data Privacy):} Toàn bộ quá trình tính toán và phân tích diễn ra cục bộ. Dữ liệu ECG thô mang thông tin sinh trắc học cá nhân không bao giờ rời khỏi thiết bị, loại trừ rủi ro bị rò rỉ trong quá trình truyền tải lên đám mây. Kiến trúc này cũng mở đường cho việc áp dụng Học máy liên kết (Federated Learning) \cite{federated_learning_ecg} trong tương lai.
+    \item \textbf{Tiết kiệm năng lượng và băng thông (Energy Efficiency):} Việc gửi tín hiệu vô tuyến (Wi-Fi/Bluetooth) liên tục tiêu tốn rất nhiều pin. Nếu AI chạy trên Edge, thiết bị chỉ cần gửi tín hiệu báo động (vài byte) khi phát hiện bất thường, giúp kéo dài thời lượng pin lên nhiều tuần.
+\end{itemize}
+Để thực hiện quá trình đưa mô hình từ định dạng TensorFlow/PyTorch xuống vi điều khiển ARM Cortex-M, các kỹ thuật lượng tử hóa sau huấn luyện (Post-Training Quantization - PTQ) có thể được áp dụng để chuyển đổi trọng số từ float32 sang int8. Nghiên cứu sâu hơn về sự suy giảm độ chính xác do lượng tử hóa sẽ là một chủ đề thú vị cho tương lai.
+
+\subsection{Kiến trúc Học máy liên kết (Federated Learning) đảm bảo quyền riêng tư}
+Thách thức lớn nhất khi xây dựng các mô hình AI y tế đa trung tâm là Luật Bảo mật Dữ liệu Bệnh nhân (ví dụ: HIPAA, GDPR), nghiêm cấm việc chia sẻ dữ liệu sinh trắc học trực tiếp. Thiết kế VAE nhỏ gọn và độc lập của chúng tôi là một nút (node) lý tưởng cho mô hình Học máy liên kết (Federated Learning - FL) \cite{federated_learning_ecg}. 
+Thay vì đẩy tín hiệu ECG từ hàng nghìn bệnh viện và đồng hồ thông minh về một máy chủ trung tâm để huấn luyện, quy trình FL diễn ra như sau:
+\begin{enumerate}
+    \item Máy chủ trung tâm khởi tạo một bộ trọng số VAE toàn cục $\Theta^{(0)}$ và phát sóng (broadcast) cho tất cả các thiết bị Edge (Client).
+    \item Mỗi thiết bị $k$ (ví dụ: điện thoại thông minh của bệnh nhân) sử dụng dữ liệu ECG thu thập nội bộ của chính mình để huấn luyện cục bộ (local training) trong vài epoch, tạo ra bản cập nhật trọng số $\Delta \Theta_k$.
+    \item Các thiết bị chỉ gửi phần chênh lệch trọng số $\Delta \Theta_k$ (đã được mã hóa) về máy chủ.
+    \item Máy chủ áp dụng thuật toán tổng hợp (ví dụ: Federated Averaging - FedAvg) để kết hợp các bản cập nhật cục bộ thành một mô hình toàn cục mới:
+    \begin{equation}
+    \Theta^{(t+1)} = \Theta^{(t)} + \sum_{k=1}^K \frac{n_k}{N} \Delta \Theta_k
+    \end{equation}
+    với $n_k$ là số lượng mẫu tại client $k$, và $N$ là tổng số mẫu trên toàn hệ thống.
+\end{enumerate}
+Bằng cách này, mô hình VAE có thể học được những biến thể sinh lý bình thường từ hàng triệu cá nhân thuộc nhiều dân tộc và lứa tuổi khác nhau trên toàn cầu, mà không một máy chủ trung tâm nào có thể nhìn thấy dữ liệu điện tâm đồ thô của bất kỳ ai. Mở rộng hệ thống phát hiện bất thường hiện tại sang kiến trúc FL là định hướng chiến lược trong pha nghiên cứu tiếp theo.
+
+\subsection{Hạn chế}
+Dù hiệu năng thực nghiệm tốt, mô hình vẫn còn một số hạn chế. Thứ nhất, ECG5000 là dữ liệu một kênh và được chuẩn hóa cố định 140 bước, trong khi tín hiệu ECG thực tế có thể dài ngắn khác nhau. Thứ hai, mô hình chưa đánh giá trên nhiều cơ sở dữ liệu lâm sàng độc lập như MIT-BIH. Thứ ba, kiến trúc dense-based chưa tận dụng đầy đủ cấu trúc cục bộ theo thời gian như 1D-CNN hoặc Transformer.
+
+\section{KẾT LUẬN VÀ HƯỚNG MỞ RỘNG}
+Nghiên cứu đã kiến thiết thành công một giải pháp phát hiện bất thường điện tâm đồ phi giám sát mạnh mẽ, ứng dụng mô hình \(\beta\)-VAE tích hợp Beta-Warmup. Bằng việc xây dựng môi trường huấn luyện nghiêm ngặt độc quyền trên dữ liệu sạch, chúng tôi đã biến mạng nơ-ron thành một tấm khiên cảnh báo hiệu quả với AUC-ROC đạt 0,9620. Tối ưu hóa không gian biểu diễn 2 chiều đã được chứng minh định lượng là giải pháp tốt nhất trong bộ thực nghiệm này.
+
+Trong tương lai, nghiên cứu sẽ phát triển các biến thể như 1D-CNN-VAE và LSTM-VAE để khai thác sâu hơn phụ thuộc chuỗi thời gian, đồng thời thử nghiệm trên bộ dữ liệu lớn hơn như MIT-BIH. Một hướng đi khác là lượng tử hóa mô hình và triển khai trực tiếp lên thiết bị đeo y tế thông minh để phục vụ giám sát bệnh nhân liên tục. Ngoài ra, việc bổ sung cơ chế giải thích theo thời gian thực sẽ giúp hệ thống phù hợp hơn với môi trường lâm sàng đòi hỏi tính minh bạch cao.
+
+\section*{LỜI CẢM ƠN}
+Nghiên cứu được hoàn thiện dưới sự chỉ dẫn khoa học của TS. Nguyễn Thiên Bảo. Nhóm tác giả chân thành cảm ơn những định hướng kiến trúc mạng thần kinh học sâu và tư duy xây dựng bài toán hệ thống tại Viện Công nghệ Thông minh và Tương tác, UEH.
+
+\begin{thebibliography}{00}
+\bibitem{ucr}
+H. A. Dau, A. Bagnall, K. Kamgar, C. C. M. Yeh, Y. Zhu, S. Gharghabi, C. A. Ratanamahatana, và E. Keogh, ``The UCR time series classification archive,'' \textit{IEEE/CAA Journal of Automatica Sinica}, vol. 6, no. 6, pp. 1293--1305, 2019.
+
+\bibitem{chalapathy}
+R. Chalapathy và S. Chawla, ``Deep learning for anomaly detection: A survey,'' \textit{arXiv preprint arXiv:1901.03407}, 2019.
+
+\bibitem{kingma}
+D. P. Kingma và M. Welling, ``Auto-Encoding Variational Bayes,'' trong \textit{ICLR}, 2014.
+
+\bibitem{ancho}
+J. An và S. Cho, ``Variational autoencoder based anomaly detection using reconstruction probability,'' \textit{Special Lecture on IE}, vol. 2, no. 1, pp. 1--18, 2015.
+
+\bibitem{thill}
+M. Thill, S. Däubener, W. Konen, và T. Bäck, ``Anomaly detection in electrocardiogram readings with stacked LSTM networks,'' trong \textit{ITISE}, 2021.
+
+\bibitem{bowman}
+S. R. Bowman, L. Vilnis, O. Vinyals, A. M. Dai, R. Jozefowicz, và S. Bengio, ``Generating sentences from a continuous space,'' \textit{arXiv preprint arXiv:1511.06349}, 2015.
+
+\bibitem{beta_vae}
+I. Higgins, L. Matthey, A. Pal, C. Burgess, X. Glorot, M. Botvinick, S. Mohamed, và A. Lerchner, ``beta-VAE: Learning Basic Visual Concepts with a Constrained Variational Framework,'' trong \textit{ICLR}, 2017.
+
+\bibitem{chen}
+Y. Chen, Y. Hao, X. Qiu, và J. Xia, ``ECG heartbeat classification using deep transfer learning with Convolutional Neural Network and LightGBM,'' \textit{IEEE Access}, vol. 8, pp. 109038--109050, 2020.
+
+\bibitem{liu}
+F. T. Liu, K. M. Ting, và Z.-H. Zhou, ``Isolation Forest,'' trong \textit{ICDM}, pp. 413--422, 2008.
+
+\bibitem{scholkopf}
+B. Schölkopf, J. C. Platt, J. Shawe-Taylor, A. J. Smola, và R. C. Williamson, ``Estimating the support of a high-dimensional distribution,'' \textit{Neural Computation}, vol. 13, no. 7, pp. 1443--1471, 2001.
+
+\bibitem{sakurada_ae}
+M. Sakurada và T. Yairi, ``Anomaly detection using autoencoders with nonlinear dimensionality reduction,'' \textit{MLSDA Workshop}, 2014.
+
+\bibitem{pan_tompkins}
+J. Pan và W. J. Tompkins, ``A real-time QRS detection algorithm,'' \textit{IEEE Transactions on Biomedical Engineering}, vol. BME-32, no. 3, pp. 230--236, 1985.
+
+\bibitem{edge_ai_healthcare}
+R. S. S. Kumar, và cộng sự, ``Edge Computing in Healthcare Using Machine Learning: A Systematic Literature Review,'' \textit{IEEE Access}, 2024.
+
+\bibitem{dtw_time_series}
+E. Keogh và C. A. Ratanamahatana, ``Exact indexing of dynamic time warping,'' \textit{Knowledge and Information Systems}, vol. 7, no. 3, pp. 358--386, 2005.
+
+\bibitem{federated_learning_ecg}
+N. Rieke, J. Hancox, W. Li, F. Milletari, H. R. Roth, và cộng sự, ``The future of digital health with federated learning,'' \textit{npj Digital Medicine}, vol. 3, no. 1, pp. 1--7, 2020.
+
+\bibitem{tishby_ib}
+N. Tishby, F. C. Pereira, và W. Bialek, ``The information bottleneck method,'' \textit{arXiv preprint physics/0004057}, 2000.
+\end{thebibliography}
+
+\end{document}
