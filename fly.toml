@@ -1,0 +1,14 @@
+app = "ecg-demo"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # PORT is set by the platform at runtime; keep default for local testing
+  PORT = "8080"
+
+# If your model checkpoints are large, create a Fly volume and uncomment the mounts below.
+# [[mounts]]
+#   source = "model-data"
+#   destination = "/app/results/checkpoints"
